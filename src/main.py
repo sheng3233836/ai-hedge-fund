@@ -12,6 +12,7 @@ from src.utils.display import print_trading_output
 from src.utils.analysts import ANALYST_ORDER, get_analyst_nodes
 from src.utils.progress import progress
 from src.utils.visualize import save_graph_as_png
+from src.tools.akshare_api import is_astock_ticker
 from src.cli.input import (
     parse_cli_inputs,
 )
@@ -52,7 +53,17 @@ def run_hedge_fund(
     selected_analysts: list[str] = [],
     model_name: str = "gpt-4.1",
     model_provider: str = "OpenAI",
+    language: str = "auto",
 ):
+    # Auto-detect language: use Chinese when all tickers are A-shares, or when explicitly requested
+    resolved_language: str
+    if language == "zh":
+        resolved_language = "zh"
+    elif language == "en":
+        resolved_language = "en"
+    else:  # "auto"
+        resolved_language = "zh" if tickers and all(is_astock_ticker(t) for t in tickers) else "en"
+
     # Start progress tracking
     progress.start()
 
@@ -79,6 +90,7 @@ def run_hedge_fund(
                     "show_reasoning": show_reasoning,
                     "model_name": model_name,
                     "model_provider": model_provider,
+                    "language": resolved_language,
                 },
             },
         )
@@ -142,6 +154,15 @@ if __name__ == "__main__":
     tickers = inputs.tickers
     selected_analysts = inputs.selected_analysts
 
+    # Language: A-share tickers default to Chinese; --zh forces Chinese; --en forces English
+    raw = inputs.raw_args
+    if getattr(raw, "en", False):
+        cli_language = "en"
+    elif getattr(raw, "zh", False):
+        cli_language = "zh"
+    else:
+        cli_language = "auto"
+
     # Construct portfolio here
     portfolio = {
         "cash": inputs.initial_cash,
@@ -175,5 +196,6 @@ if __name__ == "__main__":
         selected_analysts=inputs.selected_analysts,
         model_name=inputs.model_name,
         model_provider=inputs.model_provider,
+        language=cli_language,
     )
     print_trading_output(result)

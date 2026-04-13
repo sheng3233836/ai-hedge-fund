@@ -260,6 +260,10 @@ def parse_cli_inputs(
     if include_graph_flag:
         parser.add_argument("--show-agent-graph", action="store_true", help="Show the agent graph")
 
+    lang_group = parser.add_mutually_exclusive_group()
+    lang_group.add_argument("--zh", action="store_true", help="Force Chinese (简体中文) reasoning output")
+    lang_group.add_argument("--en", action="store_true", help="Force English reasoning output")
+
     args = parser.parse_args()
 
     # Normalize parsed values

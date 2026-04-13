@@ -2,9 +2,41 @@
 
 import json
 from pydantic import BaseModel
+from langchain_core.messages import SystemMessage
+from langchain_core.prompt_values import ChatPromptValue
 from src.llm.models import get_model, get_model_info
 from src.utils.progress import progress
 from src.graph.state import AgentState
+
+_CHINESE_INSTRUCTION = (
+    "\n\nIMPORTANT: You MUST write the 'reasoning' field entirely in Simplified Chinese (简体中文). "
+    "Keep all JSON keys and enum values (bullish/bearish/neutral/buy/sell/hold etc.) in English as required by the schema."
+)
+
+
+def _inject_language(prompt: any, language: str) -> any:
+    """Inject a language instruction into the prompt's system message."""
+    if language != "zh":
+        return prompt
+    instruction = _CHINESE_INSTRUCTION
+    if isinstance(prompt, ChatPromptValue):
+        messages = list(prompt.messages)
+        for i, msg in enumerate(messages):
+            if isinstance(msg, SystemMessage):
+                messages[i] = SystemMessage(content=msg.content + instruction)
+                return ChatPromptValue(messages=messages)
+        # No existing system message — prepend one
+        messages.insert(0, SystemMessage(content=instruction.strip()))
+        return ChatPromptValue(messages=messages)
+    if isinstance(prompt, list):
+        # List of BaseMessage
+        for i, msg in enumerate(prompt):
+            if isinstance(msg, SystemMessage):
+                prompt = list(prompt)
+                prompt[i] = SystemMessage(content=msg.content + instruction)
+                return prompt
+        return [SystemMessage(content=instruction.strip())] + list(prompt)
+    return prompt
 
 
 def call_llm(
@@ -44,6 +76,10 @@ def call_llm(
         request = state.get("metadata", {}).get("request")
         if request and hasattr(request, 'api_keys'):
             api_keys = request.api_keys
+
+    # Inject language instruction when Chinese output is requested
+    language = (state or {}).get("metadata", {}).get("language", "en")
+    prompt = _inject_language(prompt, language)
 
     model_info = get_model_info(model_name, model_provider)
     llm = get_model(model_name, model_provider, api_keys)

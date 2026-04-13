@@ -1,5 +1,11 @@
 import os
 import json
+from dotenv import load_dotenv
+
+# Load .env early so CUSTOM_LLM_* vars are available at module initialisation time,
+# regardless of whether load_dotenv() has been called by the entry-point yet.
+load_dotenv()
+
 from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -19,6 +25,7 @@ class ModelProvider(str, Enum):
 
     ALIBABA = "Alibaba"
     ANTHROPIC = "Anthropic"
+    CUSTOM = "Custom"
     DEEPSEEK = "DeepSeek"
     GOOGLE = "Google"
     GROQ = "Groq"
@@ -103,6 +110,20 @@ AVAILABLE_MODELS = load_models_from_json(str(models_json_path))
 # Load Ollama models from JSON
 OLLAMA_MODELS = load_models_from_json(str(ollama_models_json_path))
 
+# Dynamically register a Custom (third-party OpenAI-compatible) model when env vars are present.
+# All three vars must be set; CUSTOM_LLM_MODEL can be overridden at runtime via --model flag.
+_custom_key = os.getenv("CUSTOM_LLM_API_KEY", "")
+_custom_url = os.getenv("CUSTOM_LLM_BASE_URL", "")
+_custom_model = os.getenv("CUSTOM_LLM_MODEL", "")
+if _custom_key and _custom_url and _custom_model:
+    AVAILABLE_MODELS.append(
+        LLMModel(
+            display_name=f"Custom ({_custom_model})",
+            model_name=_custom_model,
+            provider=ModelProvider.CUSTOM,
+        )
+    )
+
 # Create LLM_ORDER in the format expected by the UI
 LLM_ORDER = [model.to_choice_tuple() for model in AVAILABLE_MODELS]
 
@@ -135,7 +156,26 @@ def get_models_list():
 
 
 def get_model(model_name: str, model_provider: ModelProvider, api_keys: dict = None) -> ChatOpenAI | ChatGroq | ChatOllama | GigaChat | None:
-    if model_provider == ModelProvider.GROQ:
+    if model_provider == ModelProvider.CUSTOM:
+        api_key = (api_keys or {}).get("CUSTOM_LLM_API_KEY") or os.getenv("CUSTOM_LLM_API_KEY")
+        base_url = (api_keys or {}).get("CUSTOM_LLM_BASE_URL") or os.getenv("CUSTOM_LLM_BASE_URL")
+        # model_name may be overridden by --model flag; fall back to env
+        resolved_model = model_name or os.getenv("CUSTOM_LLM_MODEL", "")
+        if not api_key:
+            print("API Key Error: Please make sure CUSTOM_LLM_API_KEY is set in your .env file.")
+            raise ValueError("Custom LLM API key not found. Please set CUSTOM_LLM_API_KEY in your .env file.")
+        if not base_url:
+            print("Base URL Error: Please make sure CUSTOM_LLM_BASE_URL is set in your .env file.")
+            raise ValueError("Custom LLM base URL not found. Please set CUSTOM_LLM_BASE_URL in your .env file.")
+        if not resolved_model:
+            print("Model Error: Please make sure CUSTOM_LLM_MODEL is set in your .env file.")
+            raise ValueError("Custom LLM model name not found. Please set CUSTOM_LLM_MODEL in your .env file.")
+        return ChatOpenAI(
+            model=resolved_model,
+            api_key=api_key,
+            base_url=base_url,
+        )
+    elif model_provider == ModelProvider.GROQ:
         api_key = (api_keys or {}).get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
         if not api_key:
             # Print error to console
